@@ -88,13 +88,13 @@ docker-compose up -d
 
 ### Environment Variables
 
-| Variable | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `DISCORD_BOT_TOKEN` | ✅ | Discord bot token from Developer Portal | `token_here` |
-| `TRELLO_API_KEY` | ✅ | Trello API key | `1234567890abcdef1234567890abcdef` |
-| `TRELLO_API_TOKEN` | ✅ | Trello API token | `abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab` |
-| `TRELLO_BOARD_ID` | ✅ | ID of your Trello board | `5e1234567890abcdef123456` |
-| `TRELLO_LIST_ID` | ✅ | ID of the Trello list to create cards in | `5e1234567890abcdef123457` |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DISCORD_BOT_TOKEN` | ✅ | Discord bot token from Developer Portal |
+| `TRELLO_API_KEY` | ✅ | Trello API key |
+| `TRELLO_API_TOKEN` | ✅ | Trello API token |
+| `TRELLO_BOARD_ID` | ✅ | ID of your Trello board | 
+| `TRELLO_LIST_ID` | ✅ | ID of the Trello list to create cards in |
 | `COMMAND_PREFIX` | ❌ | Command prefix (default: `!t`) | `!task` or `!todo` |
 
 ### Finding Trello IDs
