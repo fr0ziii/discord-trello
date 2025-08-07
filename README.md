@@ -90,7 +90,7 @@ docker-compose up -d
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `DISCORD_BOT_TOKEN` | ✅ | Discord bot token from Developer Portal | `MTIzNDU2Nzg5MDEyMzQ1Njc4OTA.GhIjkl.MnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrSt` |
+| `DISCORD_BOT_TOKEN` | ✅ | Discord bot token from Developer Portal | `token_here` |
 | `TRELLO_API_KEY` | ✅ | Trello API key | `1234567890abcdef1234567890abcdef` |
 | `TRELLO_API_TOKEN` | ✅ | Trello API token | `abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab` |
 | `TRELLO_BOARD_ID` | ✅ | ID of your Trello board | `5e1234567890abcdef123456` |
