@@ -1,0 +1,70 @@
+# docker-compose.override.yml
+# Development overrides - automatically loaded by docker-compose
+# Use: docker-compose up (automatically merges with docker-compose.yml)
+
+services:
+  discord-trello-bot:
+    # Development build context
+    build:
+      context: .
+    
+    # Override environment for development
+    environment:
+      - NODE_ENV=development
+      - DEBUG=discord*
+    
+    # Development volumes
+    volumes:
+      # Enable live code reloading (bind mount source code)
+      - ./index.js:/app/index.js:ro
+      - ./package.json:/app/package.json:ro
+      - ./logs:/app/logs
+      # Override read-only restrictions for development
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 200M
+    
+    # Disable security restrictions for easier development
+    read_only: false
+    security_opt: []
+    cap_drop: []
+    cap_add: []
+    user: root  # Use root for development to avoid permission issues
+    
+    # Expose ports for debugging
+    ports:
+      - "9229:9229"  # Node.js debug port
+    
+    # Relaxed resource limits for development
+    mem_limit: 1g
+    cpus: 1.0
+    
+    # Faster health check for development
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('Dev health check')"]
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
+    
+    # Development labels
+    labels:
+      - "environment=development"
+      - "debug=enabled"
+
+# Optional: Add development-specific services
+# Uncomment if you need additional services for development
+# 
+# services:
+#   # Example: Local database for testing
+#   # test-db:
+#   #   image: postgres:15-alpine
+#   #   environment:
+#   #     POSTGRES_DB: testdb
+#   #     POSTGRES_USER: testuser
+#   #     POSTGRES_PASSWORD: testpass
+#   #   ports:
+#   #     - "5432:5432"
+#   #   networks:
+#   #     - bot-network
