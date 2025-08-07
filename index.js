@@ -114,7 +114,15 @@ client.on('messageCreate', async (message) => {
             await message.reply({ embeds: [embed] });
             
         } catch (error) {
-            await message.reactions.removeAll();
+            try {
+                await message.reactions.removeAll();
+            } catch (reactionError) {
+                if (reactionError.code === 50013) {
+                    console.log('Missing permissions to manage reactions');
+                } else {
+                    console.error('Error removing reactions:', reactionError);
+                }
+            }
             await message.react('❌');
             
             console.error('Error processing command:', error);
