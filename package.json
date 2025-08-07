@@ -1,0 +1,32 @@
+{
+  "name": "discord-trello-bot",
+  "version": "1.0.0",
+  "description": "A Discord bot that creates Trello cards from Discord messages",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "docker:build": "docker build -t discord-trello-bot .",
+    "docker:run": "docker-compose up -d",
+    "docker:stop": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
+  },
+  "keywords": [
+    "discord",
+    "trello",
+    "bot",
+    "nodejs",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.1"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
