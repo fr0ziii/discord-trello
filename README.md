@@ -1,18 +1,23 @@
 # Discord-Trello Bot
 
-A simple Discord bot that creates Trello cards from Discord messages. Type `!t <task description>` in Discord and automatically create tasks in your Trello board.
+An intelligent Discord bot that creates rich Trello cards from Discord messages using AI-powered task analysis. Type `!t <task description>` in Discord and automatically create detailed tasks in your Trello board with smart categorization, priority detection, and due date parsing.
 
 ## 🚀 Features
 
-- **Simple Command Interface**: Use `!t <task description>` to create Trello cards
-- **Discord Integration**: Built with discord.js for robust Discord API integration
-- **Trello API Integration**: Uses Trello REST API to create cards automatically
-- **Docker Support**: Containerized application for easy deployment
-- **VPS Ready**: Includes deployment scripts for Hetzner, DigitalOcean, Lightsail, etc.
-- **Environment Configuration**: Secure API key management with environment variables
-- **Rich Embeds**: Beautiful Discord responses with task confirmation and Trello links
-- **Error Handling**: Comprehensive error handling and user feedback
-- **Health Monitoring**: Built-in health checks for container monitoring
+- **🧠 AI-Powered Task Analysis**: Uses Google Gemini AI to intelligently parse natural language task descriptions
+- **📝 Smart Card Creation**: Automatically extracts priority, due dates, labels, and effort estimates from conversational input
+- **🎯 Priority Detection**: High priority tasks automatically go to the top of your Trello list
+- **📅 Natural Language Dates**: Parse due dates from phrases like "by Friday", "next week", or "in 2 days"
+- **🏷️ Automatic Labeling**: Smart label creation and assignment based on task content (bug, feature, urgent, etc.)
+- **📊 Rich Context**: Creates detailed card descriptions with effort estimates and categorization
+- **🔄 Graceful Fallback**: Works with or without AI - falls back to basic card creation if needed
+- **🎨 Enhanced Discord UI**: Color-coded priority indicators and comprehensive task analysis display
+- **🐳 Docker Support**: Containerized application for easy deployment
+- **🌐 VPS Ready**: Includes deployment scripts for any Linux VPS
+- **🔒 Environment Configuration**: Secure API key management with environment variables
+- **📱 Rich Embeds**: Beautiful Discord responses with detailed task analysis and Trello links
+- **🛠️ Error Handling**: Comprehensive error handling with intelligent fallbacks
+- **💚 Health Monitoring**: Built-in health checks for container monitoring
 
 ## 📋 Table of Contents
 
@@ -49,6 +54,12 @@ A simple Discord bot that creates Trello cards from Discord messages. Type `!t <
    - Add `.json` to the end of the URL
    - Find your `id` (board ID) and the `id` of the list where you want to create cards
 
+### Google Gemini AI Setup (Optional)
+1. Go to [Google AI Studio](https://ai.google.dev/tutorials/setup)
+2. Create an API key for Gemini
+3. Add the key to your environment variables
+4. **Note**: The bot works without Gemini AI, but you'll miss the intelligent task analysis features
+
 ### System Requirements
 - Node.js 18+ (for local development)
 - Docker and Docker Compose (for containerized deployment)
@@ -68,11 +79,16 @@ npm install
 ### 2. Configure Environment Variables
 Edit the `.env` file with your API credentials:
 ```bash
+# Required
 DISCORD_BOT_TOKEN=your_discord_bot_token_here
 TRELLO_API_KEY=your_trello_api_key_here
 TRELLO_API_TOKEN=your_trello_api_token_here
 TRELLO_BOARD_ID=your_trello_board_id_here
 TRELLO_LIST_ID=your_trello_list_id_here
+
+# Optional (for AI features)
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-pro
 ```
 
 ### 3. Run the Bot
@@ -88,14 +104,16 @@ docker-compose up -d
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DISCORD_BOT_TOKEN` | ✅ | Discord bot token from Developer Portal |
-| `TRELLO_API_KEY` | ✅ | Trello API key |
-| `TRELLO_API_TOKEN` | ✅ | Trello API token |
-| `TRELLO_BOARD_ID` | ✅ | ID of your Trello board | 
-| `TRELLO_LIST_ID` | ✅ | ID of the Trello list to create cards in |
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `DISCORD_BOT_TOKEN` | ✅ | Discord bot token from Developer Portal | `MTIzNDU2Nzg5MDEyMzQ1Njc4.X1Y2Z3.abc123` |
+| `TRELLO_API_KEY` | ✅ | Trello API key | `1234567890abcdef` |
+| `TRELLO_API_TOKEN` | ✅ | Trello API token | `abcdef1234567890` |
+| `TRELLO_BOARD_ID` | ✅ | ID of your Trello board | `507f1f77bcf86cd799439011` |
+| `TRELLO_LIST_ID` | ✅ | ID of the Trello list to create cards in | `507f191e810c19729de860ea` |
 | `COMMAND_PREFIX` | ❌ | Command prefix (default: `!t`) | `!task` or `!todo` |
+| `GEMINI_API_KEY` | ❌ | Google AI Studio API key for smart features | `AIzaSyB...` |
+| `GEMINI_MODEL` | ❌ | Gemini model name (default: `gemini-pro`) | `gemini-pro` |
 
 ### Finding Trello IDs
 
@@ -128,14 +146,15 @@ npm run dev
 ### Project Structure
 ```
 discord-trello-bot/
-├── index.js              # Main bot application
-├── package.json           # Dependencies and scripts
-├── .env.example          # Environment template
+├── index.js              # Main bot application with AI integration
+├── package.json          # Dependencies and scripts
+├── .env.example          # Environment template with Gemini config
 ├── .env                  # Your environment variables (not committed)
 ├── .gitignore            # Git ignore rules
 ├── Dockerfile            # Docker container configuration
 ├── docker-compose.yml    # Docker Compose setup
 ├── deploy.sh             # VPS deployment script
+├── CLAUDE.md             # Project development documentation
 └── README.md             # This file
 ```
 
@@ -234,34 +253,71 @@ Once the bot is running in your Discord server:
 
 ```
 !t Buy groceries
-!t Review pull request #123
-!t Schedule team meeting for next week
-!t Fix bug in authentication system
+!t Review pull request #123 by Friday
+!t Schedule team meeting for next week - high priority
+!t Fix urgent bug in authentication system
+!t Research new framework, should take 2-3 days
+```
+
+### AI-Enhanced Examples
+With Gemini AI enabled, the bot intelligently parses these complex requests:
+
+```
+!t Fix the login page crash ASAP, users can't sign in
+→ Creates: High priority card, "urgent" + "bug" labels, positioned at top
+
+!t Plan team retrospective for next Friday at 2pm
+→ Creates: Meeting card with due date, "meeting" label, medium priority
+
+!t Research React 19 features, probably 2-3 hours of work
+→ Creates: Research card with "research" label, effort estimation
+
+!t Deploy the new API endpoints to production by end of week
+→ Creates: High priority deployment task with Friday due date
 ```
 
 ### Bot Responses
-The bot provides rich embed responses with:
+
+#### Basic Response (without AI)
 - ✅ Success confirmation with task name
 - 🔗 Direct link to the created Trello card
 - 👤 User who created the task
 - 📅 Timestamp of creation
 
+#### AI-Enhanced Response (with Gemini)
+- 🧠 Smart task analysis indicator
+- 🎯 Detected priority level with color coding
+- 📅 Parsed due date (if found)
+- 🏷️ Auto-assigned labels
+- ⏱️ Estimated effort level
+- 📂 Task category
+- 🔗 Direct link to the rich Trello card
+- 📊 All standard information plus AI insights
+
 ### Error Handling
 The bot handles various error scenarios:
-- Invalid Trello API credentials
-- Network connectivity issues
-- Trello API rate limits
-- Malformed commands
+- **Trello API Issues**: Invalid credentials, rate limits, network problems
+- **Gemini AI Failures**: Graceful fallback to basic card creation
+- **Discord Permissions**: Missing bot permissions with helpful error messages
+- **Malformed Commands**: Clear usage instructions
+- **Network Issues**: Retry logic and user feedback
 
 ## 🔧 API Reference
 
 ### Trello API Endpoints Used
-- `POST /1/cards` - Create new cards
+- `POST /1/cards` - Create new cards with rich parameters
+- `GET /1/boards/{id}/labels` - Fetch existing labels  
+- `POST /1/labels` - Create new labels automatically
 - Authentication via API key and token
 
+### Google Gemini AI Integration
+- `generateContent()` - Natural language task analysis
+- Structured JSON output parsing
+- Error handling and fallback support
+
 ### Discord.js Events Handled
-- `ready` - Bot startup
-- `messageCreate` - Message processing
+- `ready` - Bot startup with AI status indication
+- `messageCreate` - Message processing with AI analysis
 - `error` - Error handling
 
 ## 🔍 Troubleshooting
@@ -277,6 +333,13 @@ The bot handles various error scenarios:
 1. **Verify Trello credentials**: Check `TRELLO_API_KEY` and `TRELLO_API_TOKEN`
 2. **Validate board/list IDs**: Ensure `TRELLO_BOARD_ID` and `TRELLO_LIST_ID` are correct
 3. **Check Trello permissions**: Ensure your token has write access to the board
+
+#### "Smart features not working" (AI-related issues)
+1. **Verify Gemini API key**: Check `GEMINI_API_KEY` in `.env`
+2. **Check API quota**: Ensure you haven't exceeded Gemini API limits
+3. **Review model settings**: Verify `GEMINI_MODEL` is set correctly
+4. **Check logs**: Look for Gemini-specific error messages
+5. **Note**: Bot still works without AI, just creates basic cards
 
 #### Docker container won't start
 1. **Check environment file**: Ensure `.env` exists and has all required variables
@@ -320,15 +383,15 @@ docker stats discord-trello-bot
 
 ### Suggested Enhancements
 - **Multiple boards support**: Allow different Discord channels to map to different Trello boards
-- **Card templates**: Predefined card templates with custom fields
-- **User management**: Per-user board mappings
-- **Webhook integration**: Real-time updates from Trello to Discord
+- **Advanced AI features**: Custom field population, member assignment, task breakdown
+- **Webhook integration**: Real-time updates from Trello to Discord  
 - **Slash commands**: Modern Discord slash command support
 - **Card management**: Update, delete, or move cards from Discord
-- **Due dates**: Add due date support to created cards
-- **Labels and members**: Automatically assign labels or team members
-- **Batch operations**: Create multiple cards at once
-- **Analytics**: Usage statistics and reporting
+- **Team collaboration**: Multi-user board mappings and permissions
+- **Batch operations**: Create multiple cards from a single message
+- **Analytics**: AI-powered project insights and reporting
+- **Custom AI prompts**: User-defined task analysis templates
+- **Voice commands**: Speech-to-text task creation
 
 ## 📝 License
 

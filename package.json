@@ -21,8 +21,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "discord.js": "^14.14.1",
+    "@google/genai": "^1.13.0",
     "axios": "^1.6.7",
+    "discord.js": "^14.14.1",
     "dotenv": "^16.4.1"
   },
   "engines": {
