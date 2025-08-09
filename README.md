@@ -1,18 +1,33 @@
 # Discord-Trello Bot
 
-An intelligent Discord bot that creates rich Trello cards from Discord messages using AI-powered task analysis. Type `!t <task description>` in Discord and automatically create detailed tasks in your Trello board with smart categorization, priority detection, and due date parsing.
+An intelligent Discord bot that provides full bidirectional integration between Discord and Trello with real-time synchronization. Create rich Trello cards from Discord messages using AI-powered task analysis, receive live notifications of Trello updates in Discord, and manage your boards directly from chat with advanced commands.
 
 ## 🚀 Features
 
+### Core Integration
+- **🔄 Real-Time Synchronization**: Bidirectional Discord ↔ Trello updates via webhooks
+- **🌐 Webhook Server**: Built-in Express.js server for receiving Trello notifications
+- **🔐 Secure Webhooks**: HMAC-SHA1 signature verification for webhook authenticity
+- **📡 Live Notifications**: Instant Discord notifications for all Trello board activity
+
+### AI-Powered Task Management
 - **🧠 AI-Powered Task Analysis**: Uses Google Gemini AI to intelligently parse natural language task descriptions
 - **📝 Smart Card Creation**: Automatically extracts priority, due dates, labels, and effort estimates from conversational input
 - **🎯 Priority Detection**: High priority tasks automatically go to the top of your Trello list
 - **📅 Natural Language Dates**: Parse due dates from phrases like "by Friday", "next week", or "in 2 days"
 - **🏷️ Automatic Labeling**: Smart label creation and assignment based on task content (bug, feature, urgent, etc.)
 - **📊 Rich Context**: Creates detailed card descriptions with effort estimates and categorization
+
+### Advanced Bot Commands
+- **💬 Multiple Commands**: `help`, `status`, `list`, `update` commands beyond basic card creation
+- **📊 Board Analytics**: Real-time board statistics and health monitoring
+- **📋 Card Management**: View recent cards, update existing cards directly from Discord
+- **🔍 Smart Search**: List and filter cards with intelligent display
+
+### Production Ready
 - **🔄 Graceful Fallback**: Works with or without AI - falls back to basic card creation if needed
 - **🎨 Enhanced Discord UI**: Color-coded priority indicators and comprehensive task analysis display
-- **🐳 Docker Support**: Containerized application for easy deployment
+- **🐳 Docker Support**: Containerized application with webhook server support
 - **🌐 VPS Ready**: Includes deployment scripts for any Linux VPS
 - **🔒 Environment Configuration**: Secure API key management with environment variables
 - **📱 Rich Embeds**: Beautiful Discord responses with detailed task analysis and Trello links
@@ -113,7 +128,10 @@ docker-compose up -d
 | `TRELLO_LIST_ID` | ✅ | ID of the Trello list to create cards in | `507f191e810c19729de860ea` |
 | `COMMAND_PREFIX` | ❌ | Command prefix (default: `!t`) | `!task` or `!todo` |
 | `GEMINI_API_KEY` | ❌ | Google AI Studio API key for smart features | `AIzaSyB...` |
-| `GEMINI_MODEL` | ❌ | Gemini model name (default: `gemini-pro`) | `gemini-pro` |
+| `GEMINI_MODEL` | ❌ | Gemini model name (default: `gemini-2.0-flash-001`) | `gemini-2.0-flash-001` |
+| `WEBHOOK_PORT` | ❌ | Port for webhook server (default: `3000`) | `3000` |
+| `WEBHOOK_SECRET` | ❌ | Secret for webhook signature verification | `your_webhook_secret` |
+| `WEBHOOK_URL` | ❌ | Public URL for Trello webhooks | `https://yourdomain.com` |
 
 ### Finding Trello IDs
 
@@ -146,15 +164,17 @@ npm run dev
 ### Project Structure
 ```
 discord-trello-bot/
-├── index.js              # Main bot application with AI integration
+├── index.js              # Main bot application with AI + webhook integration
 ├── package.json          # Dependencies and scripts
-├── .env.example          # Environment template with Gemini config
+├── .env.example          # Environment template with webhook config
 ├── .env                  # Your environment variables (not committed)
 ├── .gitignore            # Git ignore rules
 ├── Dockerfile            # Docker container configuration
-├── docker-compose.yml    # Docker Compose setup
+├── docker-compose.yml    # Docker Compose setup with webhook port
 ├── deploy.sh             # VPS deployment script
 ├── CLAUDE.md             # Project development documentation
+├── docs/                 # Documentation directory
+│   └── TRELLO_API_RESEARCH_SUMMARY.md  # API research and enhancement plans
 └── README.md             # This file
 ```
 
@@ -186,11 +206,13 @@ docker-compose down
 ```
 
 ### Docker Compose Features
+- **Webhook Server**: Express.js server on port 3000 for Trello webhooks
 - **Auto-restart**: Container restarts automatically on failure
-- **Resource limits**: Memory and CPU limits configured
-- **Health checks**: Built-in container health monitoring
+- **Resource limits**: Memory and CPU limits optimized for webhook server
+- **Health checks**: Built-in webhook endpoint health monitoring
 - **Log management**: Automatic log rotation
 - **Volume mounting**: Persistent logs directory
+- **Port Mapping**: Webhook server accessible from host
 
 ## 🌐 VPS Deployment
 
@@ -248,15 +270,31 @@ sudo ./deploy.sh status
 
 ## 📖 Usage
 
-### Basic Commands
+### Available Commands
 Once the bot is running in your Discord server:
 
+#### Task Creation (Default Behavior)
 ```
 !t Buy groceries
 !t Review pull request #123 by Friday
 !t Schedule team meeting for next week - high priority
 !t Fix urgent bug in authentication system
 !t Research new framework, should take 2-3 days
+```
+
+#### Bot Management Commands
+```
+!t help              # Show all available commands and usage
+!t status            # Display current board statistics and health
+!t list [number]     # Show recent cards (default: 5, max: 20)
+!t update <card-id> <field>=<value>  # Update existing cards
+```
+
+#### Update Command Examples
+```
+!t update abc12345 name=New Task Title
+!t update def67890 desc=Updated task description
+!t update ghi13579 due=2024-12-25
 ```
 
 ### AI-Enhanced Examples
@@ -278,13 +316,13 @@ With Gemini AI enabled, the bot intelligently parses these complex requests:
 
 ### Bot Responses
 
-#### Basic Response (without AI)
+#### Task Creation Response (Basic)
 - ✅ Success confirmation with task name
 - 🔗 Direct link to the created Trello card
 - 👤 User who created the task
 - 📅 Timestamp of creation
 
-#### AI-Enhanced Response (with Gemini)
+#### Task Creation Response (AI-Enhanced)
 - 🧠 Smart task analysis indicator
 - 🎯 Detected priority level with color coding
 - 📅 Parsed due date (if found)
@@ -294,20 +332,57 @@ With Gemini AI enabled, the bot intelligently parses these complex requests:
 - 🔗 Direct link to the rich Trello card
 - 📊 All standard information plus AI insights
 
+#### Real-Time Trello Notifications
+- 🆕 **New Card Created**: Shows card details, list, and creator
+- ✏️ **Card Updated**: Highlights changes (name, description, due date)
+- 💬 **New Comment**: Displays comment preview and author
+- 👥 **Member Changes**: Shows member additions/removals
+- ✅ **Checklist Updates**: Shows completed/uncompleted items
+- 🔔 **General Activity**: Other Trello board events
+
+#### Command Responses
+- 📊 **Status Command**: Board overview, list statistics, total cards
+- 📋 **List Command**: Recent cards with IDs, creation dates, due dates
+- ✏️ **Update Command**: Confirmation of card updates with new values
+- ❓ **Help Command**: Complete command reference with examples
+
+### Webhook Integration
+
+To enable real-time notifications:
+
+1. **Configure Public URL**: Set `WEBHOOK_URL` in your `.env` to your bot's public address
+2. **Set Webhook Secret**: Add `WEBHOOK_SECRET` for security (recommended)
+3. **Auto-Registration**: Bot automatically registers webhooks on startup
+4. **Manual Registration**: Use Trello API or bot will prompt if needed
+
+#### Webhook Security
+- HMAC-SHA1 signature verification
+- Request validation and error handling
+- Automatic retry mechanism from Trello
+- Health check endpoint at `/health`
+
 ### Error Handling
 The bot handles various error scenarios:
 - **Trello API Issues**: Invalid credentials, rate limits, network problems
+- **Webhook Failures**: Signature verification, malformed payloads, network issues
 - **Gemini AI Failures**: Graceful fallback to basic card creation
 - **Discord Permissions**: Missing bot permissions with helpful error messages
-- **Malformed Commands**: Clear usage instructions
+- **Malformed Commands**: Clear usage instructions with command help
 - **Network Issues**: Retry logic and user feedback
 
 ## 🔧 API Reference
 
 ### Trello API Endpoints Used
 - `POST /1/cards` - Create new cards with rich parameters
+- `PUT /1/cards/{id}` - Update existing cards (name, description, due date)
+- `GET /1/boards/{id}` - Fetch board information and statistics
+- `GET /1/boards/{id}/lists` - Get all lists with card counts
+- `GET /1/boards/{id}/cards` - Retrieve recent cards with filters
 - `GET /1/boards/{id}/labels` - Fetch existing labels  
 - `POST /1/labels` - Create new labels automatically
+- `POST /1/webhooks` - Register webhooks for real-time notifications
+- `GET /1/tokens/{token}/webhooks` - List existing webhooks
+- `DELETE /1/webhooks/{id}` - Remove webhooks
 - Authentication via API key and token
 
 ### Google Gemini AI Integration
@@ -316,9 +391,15 @@ The bot handles various error scenarios:
 - Error handling and fallback support
 
 ### Discord.js Events Handled
-- `ready` - Bot startup with AI status indication
-- `messageCreate` - Message processing with AI analysis
-- `error` - Error handling
+- `ready` - Bot startup with AI and webhook status indication
+- `messageCreate` - Command parsing and processing with AI analysis
+- `error` - Error handling and logging
+
+### Express.js Webhook Endpoints
+- `POST /webhook/trello` - Receive and process Trello webhooks
+- `GET /health` - Health check endpoint for monitoring
+- HMAC-SHA1 signature verification middleware
+- JSON payload parsing and validation
 
 ## 🔍 Troubleshooting
 
@@ -337,9 +418,17 @@ The bot handles various error scenarios:
 #### "Smart features not working" (AI-related issues)
 1. **Verify Gemini API key**: Check `GEMINI_API_KEY` in `.env`
 2. **Check API quota**: Ensure you haven't exceeded Gemini API limits
-3. **Review model settings**: Verify `GEMINI_MODEL` is set correctly
+3. **Review model settings**: Verify `GEMINI_MODEL` is set correctly (default: `gemini-2.0-flash-001`)
 4. **Check logs**: Look for Gemini-specific error messages
 5. **Note**: Bot still works without AI, just creates basic cards
+
+#### "Webhook notifications not working" (Real-time sync issues)
+1. **Verify webhook URL**: Check `WEBHOOK_URL` is publicly accessible
+2. **Check webhook secret**: Ensure `WEBHOOK_SECRET` matches if configured
+3. **Validate port access**: Confirm port 3000 is accessible from internet
+4. **Review webhook logs**: Look for webhook registration and processing errors
+5. **Test health endpoint**: Visit `http://your-url:3000/health` to verify server
+6. **Check Trello webhook**: Verify webhook exists in your Trello token's webhooks
 
 #### Docker container won't start
 1. **Check environment file**: Ensure `.env` exists and has all required variables
@@ -358,11 +447,17 @@ Monitor bot health:
 # Check container health
 docker-compose ps
 
+# Test webhook server health
+curl http://localhost:3000/health
+
 # View detailed logs
 docker-compose logs -f discord-trello-bot
 
 # Monitor resource usage
 docker stats discord-trello-bot
+
+# Check webhook registration
+# Look for "Webhook registered" or "Webhook already exists" in logs
 ```
 
 ## 🤝 Contributing
@@ -384,14 +479,16 @@ docker stats discord-trello-bot
 ### Suggested Enhancements
 - **Multiple boards support**: Allow different Discord channels to map to different Trello boards
 - **Advanced AI features**: Custom field population, member assignment, task breakdown
-- **Webhook integration**: Real-time updates from Trello to Discord  
+- **Enhanced webhook features**: Card archiving, list movement notifications, custom field updates
 - **Slash commands**: Modern Discord slash command support
-- **Card management**: Update, delete, or move cards from Discord
+- **Advanced card management**: Delete, move cards between lists, bulk operations
 - **Team collaboration**: Multi-user board mappings and permissions
 - **Batch operations**: Create multiple cards from a single message
 - **Analytics**: AI-powered project insights and reporting
 - **Custom AI prompts**: User-defined task analysis templates
 - **Voice commands**: Speech-to-text task creation
+- **Persistent storage**: Database for user preferences and channel mappings
+- **Role-based permissions**: Restrict bot commands based on Discord roles
 
 ## 📝 License
 
