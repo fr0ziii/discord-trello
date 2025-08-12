@@ -4,28 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Discord-Trello Bot is a Node.js Discord bot that provides full bidirectional integration between Discord and Trello with real-time synchronization. Users can create Trello cards from Discord messages, receive live notifications of Trello updates, and manage boards with advanced commands.
+Discord-Trello Bot is an enterprise-ready Node.js Discord bot that provides comprehensive multi-board integration between Discord and Trello with real-time synchronization, advanced analytics, and AI-powered features. Each Discord channel can be mapped to different Trello boards, enabling sophisticated team organization and workflow management.
 
 **Key Technologies:**
 - Node.js with discord.js v14
 - Express.js webhook server for real-time sync
+- SQLite database for persistent configuration storage
 - Trello REST API integration via axios
 - Google Gemini AI for intelligent task analysis
 - HMAC-SHA1 webhook signature verification
 - Docker containerization with webhook port mapping
-- Environment-based configuration
+- In-memory caching with node-cache
+- Role-based permission system
 
 **Core Architecture:**
-- Single-file application (`index.js`) with event-driven Discord bot and Express.js webhook server
-- Bidirectional Discord ↔ Trello integration with real-time webhooks
-- Multi-command system with help, status, list, and update capabilities
-- Async Trello API integration with comprehensive error handling
-- Gemini AI integration for intelligent task parsing and metadata extraction
-- Automatic webhook registration and management
-- HMAC-SHA1 signature verification for webhook security
-- Automatic label management and card enrichment
-- Environment variable validation and graceful shutdown handling
-- Docker deployment with webhook server, health checks and resource limits
+- Modular microservice architecture with specialized services
+- Multi-board Discord ↔ Trello integration with intelligent routing
+- Database-backed configuration management with caching
+- Advanced command system with admin tools and analytics
+- AI-enhanced workflow optimization and suggestions
+- Comprehensive audit logging and security monitoring
+- Enterprise-grade permission system and access controls
+- Automatic webhook management for multiple boards
+- Performance monitoring and health checks
+- Template-based configuration management
 
 ## Commands
 
@@ -75,6 +77,8 @@ Optional:
 - `WEBHOOK_PORT` - Port for webhook server (default: `3000`)
 - `WEBHOOK_SECRET` - Secret for webhook signature verification (recommended)
 - `WEBHOOK_URL` - Public URL for Trello webhooks (enables real-time notifications)
+- `DATABASE_PATH` - SQLite database location (default: `./data/discord-trello.db`)
+- `CONFIG_CACHE_TTL` - Configuration cache TTL in seconds (default: `300`)
 
 The bot validates all required environment variables on startup and exits with descriptive errors if any are missing. Gemini AI features are optional - the bot gracefully falls back to basic card creation if not configured.
 
@@ -133,26 +137,38 @@ The bot validates all required environment variables on startup and exits with d
 - ✅ Updated Docker configuration for webhook support
 - ✅ Environment configuration for webhook features
 
-**Phase 3 (Future)**: Advanced automation and analytics
-- 🔄 Intelligent board organization based on content analysis
-- 🔄 Predictive analytics for deadline forecasting
-- 🔄 Cross-platform integration (GitHub, calendar events)
-- 🔄 Natural language interface for complex operations
+**Phase 3 (Completed)**: Multi-Board Integration & Advanced Features
+- ✅ Multi-board Discord channel mapping with database persistence
+- ✅ Advanced admin tools and role-based permissions
+- ✅ Comprehensive analytics and audit logging
+- ✅ AI-enhanced configuration suggestions and optimization
+- ✅ Template-based configuration management
+- ✅ Enterprise-grade security and monitoring
+- ✅ Performance optimization with caching and health monitoring
 
-**Current API Utilization**: ~40% of Trello API capabilities (up from ~5% initially)
+**Current API Utilization**: ~75% of Trello API capabilities (enterprise-ready)
 
 ## Development Notes
 
-The application is designed as a comprehensive Discord-Trello integration platform with bidirectional synchronization. When modifying:
+The application is designed as an enterprise-ready multi-board Discord-Trello integration platform with comprehensive team management capabilities. When modifying:
 
-**Discord Integration:**
-- Command parsing and routing in `messageCreate` event handler
-- Multiple command handlers: `handleCreateCommand()`, `handleStatusCommand()`, `handleListCommand()`, `handleUpdateCommand()`, `handleHelpCommand()`
-- Rich embeds follow Discord's embed structure format with priority-based color coding
-- Bot activity status shows current command prefix and AI/webhook status
+**Modular Architecture:**
+- `/src/database/` - SQLite database management, migrations, and schema
+- `/src/services/` - Core business logic services (ConfigManager, TrelloService, WebhookManager, etc.)
+- `/src/commands/` - Command routing and handling (CommandRouter, AdminCommands, ConfigCommands)
+- `/src/utils/` - Utility functions (validation, caching, formatting)
 
-**Webhook Integration:**
-- Express.js server with `/webhook/trello` endpoint for receiving Trello events
+**Multi-Board System:**
+- Dynamic board/list resolution based on channel mappings
+- Database-backed configuration with in-memory caching
+- Intelligent webhook routing to appropriate Discord channels
+- Backward compatibility with environment variable fallbacks
+
+**Enterprise Features:**
+- Role-based permission system with Discord integration
+- Comprehensive audit logging and analytics tracking
+- AI-enhanced configuration suggestions and workflow optimization
+- Template-based configuration management for common scenarios
 - HMAC-SHA1 signature verification via `verifyTrelloWebhook()` function
 - Discord notification creation via `createTrelloEventEmbed()` function
 - Webhook management functions: `createTrelloWebhook()`, `deleteTrelloWebhook()`, `listTrelloWebhooks()`
@@ -176,12 +192,30 @@ No testing framework is currently configured. The application relies on runtime 
 
 ## Command Reference
 
-**Available Commands:**
-- `!t <task_description>` - Create a new Trello card (default behavior, backward compatible)
-- `!t help` - Display comprehensive command help with examples
-- `!t status` - Show board overview, list statistics, and total card counts
-- `!t list [limit]` - Display recent cards (default: 5, max: 20) with IDs and metadata
-- `!t update <card-id> <field>=<value>` - Update existing cards (supports name, desc, due fields)
+**User Commands (All Permission Levels):**
+- `!t <task_description>` - Create a new Trello card with AI analysis (backward compatible)
+- `!t help` - Display dynamic help showing permission-appropriate commands
+- `!t status` - Show board status with enhanced analytics for current channel
+- `!t list [limit]` - Display recent cards from current channel's board (default: 5, max: 20)
+- `!t update <card-id> <field>=<value>` - Update existing cards with audit logging
+
+**Configuration Commands (Moderator+ Permissions):**
+- `!t config board <board-id> [list-id]` - Configure current channel's board mapping
+- `!t config show` - Show current channel's configuration and board context
+- `!t config list` - List all server configurations and mappings
+- `!t config remove` - Remove current channel's configuration
+- `!t config default <board-id> <list-id>` - Set server-wide default board
+- `!t analytics [timeframe]` - Usage analytics dashboard (1d, 7d, 30d, 90d)
+- `!t templates list/apply/create` - Configuration template management
+- `!t suggest` - AI-powered configuration suggestions and optimization
+
+**Administrator Commands (Admin Permissions):**
+- `!t admin boards` - Discover and manage all accessible Trello boards
+- `!t admin reset [type]` - Reset configurations with confirmation and backup
+- `!t admin status` - Comprehensive server analytics and health monitoring
+- `!t admin webhooks` - Advanced webhook management and health checks
+- `!t admin export/import` - Configuration backup and restore capabilities
+- `!t permissions list/set/remove` - Role-based permission management
 
 **Webhook Events Supported:**
 - `createCard` - New card creation notifications

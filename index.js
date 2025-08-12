@@ -1,10 +1,26 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
-const axios = require('axios');
 const genaiModule = require('@google/genai');
 const GoogleGenAI = genaiModule.GoogleGenAI;
 const express = require('express');
 const crypto = require('crypto');
+
+// Import new modular services
+const { getDatabase } = require('./src/database/connection');
+const { MigrationManager } = require('./src/database/migrations');
+const { ConfigManager } = require('./src/services/ConfigManager');
+const { TrelloService } = require('./src/services/TrelloService');
+const { WebhookManager } = require('./src/services/WebhookManager');
+const { CommandRouter } = require('./src/commands/CommandRouter');
+const { ValidationUtils } = require('./src/utils/validation');
+const { getCache } = require('./src/utils/cache');
+
+// Phase 3.3 Advanced Services
+const { PermissionManager } = require('./src/services/PermissionManager');
+const { AnalyticsManager } = require('./src/services/AnalyticsManager');
+const { AuditLogger } = require('./src/services/AuditLogger');
+const { TemplateManager } = require('./src/services/TemplateManager');
+const { AIEnhancedManager } = require('./src/services/AIEnhancedManager');
 
 const client = new Client({
     intents: [
@@ -14,10 +30,7 @@ const client = new Client({
     ],
 });
 
-const TRELLO_API_KEY = process.env.TRELLO_API_KEY;
-const TRELLO_API_TOKEN = process.env.TRELLO_API_TOKEN;
-const TRELLO_BOARD_ID = process.env.TRELLO_BOARD_ID;
-const TRELLO_LIST_ID = process.env.TRELLO_LIST_ID;
+// Environment variables
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const COMMAND_PREFIX = process.env.COMMAND_PREFIX || '!t';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -26,8 +39,23 @@ const WEBHOOK_PORT = process.env.WEBHOOK_PORT || 3000;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
-// Initialize Gemini AI
+// Initialize services
+let db;
+let configManager;
+let trelloService;
+let webhookManager;
+let commandRouter;
+let configCache;
 let genAI;
+
+// Phase 3.3 Advanced Services
+let permissionManager;
+let analyticsManager;
+let auditLogger;
+let templateManager;
+let aiEnhancedManager;
+
+// Initialize Gemini AI
 if (GEMINI_API_KEY) {
     genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 }
@@ -36,6 +64,239 @@ if (GEMINI_API_KEY) {
 const app = express();
 app.use(express.raw({ type: 'application/json' }));
 
+// Service initialization function
+async function initializeServices() {
+    try {
+        console.log('🔧 Initializing services...');
+        
+        // Initialize database and run migrations
+        db = getDatabase();
+        const migrationManager = new MigrationManager();
+        await migrationManager.runMigrations();
+        
+        // Initialize cache
+        configCache = getCache();
+        
+        // Initialize core services with database and cache integration
+        configManager = new ConfigManager();
+        trelloService = new TrelloService(configManager);
+        webhookManager = new WebhookManager(trelloService);
+        
+        // Initialize Phase 3.3 advanced services
+        console.log('🚀 Initializing Phase 3.3 advanced services...');
+        
+        permissionManager = new PermissionManager();
+        analyticsManager = new AnalyticsManager();
+        auditLogger = new AuditLogger();
+        templateManager = new TemplateManager(configManager, trelloService);
+        aiEnhancedManager = new AIEnhancedManager(configManager, trelloService, analyticsManager, genAI);
+        
+        // Initialize enhanced CommandRouter with all Phase 3.3 services
+        commandRouter = new CommandRouter(
+            configManager, 
+            trelloService, 
+            genAI, 
+            webhookManager,
+            {
+                permissionManager,
+                analyticsManager,
+                auditLogger,
+                templateManager,
+                aiEnhancedManager
+            }
+        );
+        
+        console.log('✅ Phase 3.3 services initialized successfully');
+        
+        // Enhanced ConfigManager with caching
+        configManager.getChannelMapping = async function(guildId, channelId) {
+            // Try cache first
+            const cached = await configCache.getChannelMapping(guildId, channelId);
+            if (cached) {
+                return cached;
+            }
+            
+            // Get from database
+            const originalMethod = ConfigManager.prototype.getChannelMapping;
+            const result = await originalMethod.call(this, guildId, channelId);
+            
+            // Cache the result if found
+            if (result) {
+                await configCache.setChannelMapping(guildId, channelId, result);
+            }
+            
+            return result;
+        }.bind(configManager);
+        
+        // Enhanced TrelloService with caching
+        const originalValidateBoardAccess = trelloService.validateBoardAccess;
+        trelloService.validateBoardAccess = async function(boardId) {
+            // Try cache first
+            const cached = await configCache.getBoardValidation(boardId);
+            if (cached) {
+                return cached;
+            }
+            
+            // Validate with API
+            const result = await originalValidateBoardAccess.call(this, boardId);
+            
+            // Cache the result
+            await configCache.setBoardValidation(boardId, result);
+            
+            return result;
+        }.bind(trelloService);
+        
+        const originalValidateListAccess = trelloService.validateListAccess;
+        trelloService.validateListAccess = async function(listId) {
+            // Try cache first
+            const cached = await configCache.getListValidation(listId);
+            if (cached) {
+                return cached;
+            }
+            
+            // Validate with API
+            const result = await originalValidateListAccess.call(this, listId);
+            
+            // Cache the result
+            await configCache.setListValidation(listId, result);
+            
+            return result;
+        }.bind(trelloService);
+        
+        console.log('✅ All services initialized successfully');
+        
+        // Log system startup
+        if (auditLogger) {
+            await auditLogger.logSystemEvent('startup', {
+                version: '1.2.0',
+                features: commandRouter.getEnabledFeatures(),
+                timestamp: new Date().toISOString()
+            }, 'LOW');
+        }
+        
+        // Run health checks
+        await runHealthChecks();
+        
+    } catch (error) {
+        console.error('❌ Failed to initialize services:', error);
+        
+        // Log startup failure
+        if (auditLogger) {
+            await auditLogger.logSystemEvent('startup_failure', {
+                error: error.message,
+                timestamp: new Date().toISOString()
+            }, 'HIGH');
+        }
+        
+        // Fallback to basic functionality
+        console.log('⚠️ Falling back to basic functionality...');
+        configManager = null;
+        trelloService = null;
+        commandRouter = null;
+        
+        // Clear Phase 3.3 services on failure
+        permissionManager = null;
+        analyticsManager = null;
+        auditLogger = null;
+        templateManager = null;
+        aiEnhancedManager = null;
+    }
+}
+
+async function runHealthChecks() {
+    console.log('🏥 Running health checks...');
+    
+    try {
+        // Database health check
+        const dbHealth = await db.healthCheck();
+        console.log(`🗃️ Database: ${dbHealth ? '✅ Healthy' : '❌ Unhealthy'}`);
+        
+        // Cache health check
+        const cacheHealth = await configCache.healthCheck();
+        console.log(`📦 Cache: ${cacheHealth.healthy ? '✅ Healthy' : '❌ Unhealthy'}`);
+        
+        // Trello API health check
+        if (trelloService) {
+            const trelloHealth = await trelloService.healthCheck();
+            console.log(`🔗 Trello API: ${trelloHealth.healthy ? '✅ Healthy' : '❌ Unhealthy'}`);
+        }
+        
+        // WebhookManager health check
+        if (webhookManager) {
+            const webhookHealth = await webhookManager.healthCheck();
+            console.log(`🪝 Webhook Manager: ${webhookHealth.healthy ? '✅ Healthy' : '❌ Unhealthy'} (${webhookHealth.activeRegistrations || 0} active webhooks)`);
+        }
+        
+        // Phase 3.3 service health checks
+        if (permissionManager) {
+            const permHealth = await permissionManager.healthCheck();
+            console.log(`🔒 Permission Manager: ${permHealth.healthy ? '✅ Healthy' : '❌ Unhealthy'} (${permHealth.cacheSize} cached permissions)`);
+        }
+        
+        if (analyticsManager) {
+            const analyticsHealth = await analyticsManager.getHealthMetrics();
+            console.log(`📊 Analytics Manager: ${analyticsHealth.healthy ? '✅ Healthy' : '❌ Unhealthy'} (${analyticsHealth.bufferStatus?.size || 0} buffered metrics)`);
+        }
+        
+        if (auditLogger) {
+            const auditHealth = await auditLogger.healthCheck();
+            console.log(`📝 Audit Logger: ${auditHealth.healthy ? '✅ Healthy' : '❌ Unhealthy'} (${auditHealth.bufferSize} buffered logs)`);
+        }
+        
+        if (templateManager) {
+            const templateHealth = await templateManager.healthCheck();
+            console.log(`📋 Template Manager: ${templateHealth.healthy ? '✅ Healthy' : '❌ Unhealthy'} (${templateHealth.templateCount} templates)`);
+        }
+        
+        if (aiEnhancedManager) {
+            const aiHealth = await aiEnhancedManager.healthCheck();
+            console.log(`🧠 AI Enhanced Manager: ${aiHealth.healthy ? '✅ Healthy' : '❌ Unhealthy'} (AI: ${aiHealth.aiEnabled ? '✅' : '❌'})`);
+        }
+        
+        // CommandRouter comprehensive health check
+        if (commandRouter) {
+            const routerHealth = await commandRouter.healthCheck();
+            console.log(`🎮 Command Router: ${routerHealth.healthy ? '✅ Healthy' : '❌ Unhealthy'} (${routerHealth.commands.registered} commands registered)`);
+            
+            const enabledFeatures = Object.entries(routerHealth.features)
+                .filter(([feature, enabled]) => enabled)
+                .map(([feature]) => feature);
+            
+            console.log(`🚀 Enabled Features: ${enabledFeatures.join(', ')}`);
+        }
+        
+        // Record health check in analytics
+        if (analyticsManager) {
+            await analyticsManager.recordSystemMetric('health_check', {
+                timestamp: new Date().toISOString(),
+                services: {
+                    database: dbHealth,
+                    cache: cacheHealth.healthy,
+                    trello: trelloService ? true : false,
+                    webhooks: webhookManager ? true : false,
+                    permissions: permissionManager ? true : false,
+                    analytics: analyticsManager ? true : false,
+                    audit: auditLogger ? true : false,
+                    templates: templateManager ? true : false,
+                    ai: aiEnhancedManager ? true : false
+                }
+            });
+        }
+        
+    } catch (error) {
+        console.error('⚠️ Health check warnings:', error.message);
+        
+        // Log health check failure
+        if (auditLogger) {
+            await auditLogger.logSystemEvent('health_check_failure', {
+                error: error.message,
+                timestamp: new Date().toISOString()
+            }, 'MEDIUM');
+        }
+    }
+}
+
+// Webhook verification function (unchanged for compatibility)
 function verifyTrelloWebhook(body, signature, secret) {
     if (!secret || !signature) {
         return false;
@@ -49,184 +310,7 @@ function verifyTrelloWebhook(body, signature, secret) {
     return signature === expectedSignature;
 }
 
-async function analyzeTaskWithGemini(taskInput, discordContext) {
-    if (!genAI) {
-        console.log('Gemini API not configured, falling back to basic card creation');
-        return null;
-    }
-
-    try {
-        // Use the new API with models.generateContent
-        
-        const systemPrompt = `You are a task analysis assistant that converts natural language task descriptions into structured data for project management. Analyze the following task and extract relevant information.
-
-Return your response as a valid JSON object with this exact structure:
-{
-  "title": "A clear, concise task title (max 50 chars)",
-  "description": "A detailed description expanding on the task context and requirements",
-  "priority": "High" | "Medium" | "Low",
-  "dueDate": "YYYY-MM-DDTHH:MM:SS.000Z" | null,
-  "labels": ["array", "of", "label", "names"],
-  "estimatedEffort": "Quick" | "Medium" | "Large",
-  "category": "Development" | "Bug" | "Feature" | "Meeting" | "Research" | "Design" | "Admin"
-}
-
-Guidelines:
-- Extract priority from urgency words (urgent, asap, critical = High; soon, important = Medium; later, whenever = Low)
-- Parse natural language dates ("tomorrow", "next Friday", "in 2 weeks", "by end of month")
-- Suggest relevant labels based on content (bug, feature, urgent, meeting, research, frontend, backend, etc.)
-- Estimate effort based on complexity (Quick: <2h, Medium: 2h-1day, Large: >1day)
-- If no due date mentioned, set to null
-- Keep title concise and actionable
-
-Task to analyze: "${taskInput}"
-Discord context: User ${discordContext.username} in #${discordContext.channelName}`;
-
-        const response = await genAI.models.generateContent({
-            model: GEMINI_MODEL,
-            contents: systemPrompt
-        });
-        const text = response.text;
-        
-        // Extract JSON from response (handle potential markdown formatting)
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-            throw new Error('No JSON found in Gemini response');
-        }
-        
-        return JSON.parse(jsonMatch[0]);
-    } catch (error) {
-        console.error('Error analyzing task with Gemini:', error);
-        return null;
-    }
-}
-
-async function getOrCreateTrelloLabels(labelNames) {
-    if (!labelNames || labelNames.length === 0) return [];
-    
-    try {
-        // Get existing labels on the board
-        const boardLabelsResponse = await axios.get(
-            `https://api.trello.com/1/boards/${TRELLO_BOARD_ID}/labels`,
-            { params: { key: TRELLO_API_KEY, token: TRELLO_API_TOKEN } }
-        );
-        const existingLabels = boardLabelsResponse.data;
-        
-        const labelIds = [];
-        const labelColors = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'sky', 'lime', 'black'];
-        
-        for (const labelName of labelNames) {
-            // Check if label already exists
-            const existingLabel = existingLabels.find(label => 
-                label.name.toLowerCase() === labelName.toLowerCase()
-            );
-            
-            if (existingLabel) {
-                labelIds.push(existingLabel.id);
-            } else {
-                // Create new label
-                try {
-                    const newLabelResponse = await axios.post(
-                        'https://api.trello.com/1/labels',
-                        null,
-                        {
-                            params: {
-                                key: TRELLO_API_KEY,
-                                token: TRELLO_API_TOKEN,
-                                name: labelName,
-                                color: labelColors[Math.floor(Math.random() * labelColors.length)],
-                                idBoard: TRELLO_BOARD_ID
-                            }
-                        }
-                    );
-                    labelIds.push(newLabelResponse.data.id);
-                } catch (createError) {
-                    console.error(`Error creating label "${labelName}":`, createError.message);
-                }
-            }
-        }
-        
-        return labelIds;
-    } catch (error) {
-        console.error('Error managing Trello labels:', error.message);
-        return [];
-    }
-}
-
-async function createTrelloCard(name, description = '', options = {}) {
-    try {
-        const url = `https://api.trello.com/1/cards`;
-        const params = {
-            key: TRELLO_API_KEY,
-            token: TRELLO_API_TOKEN,
-            idList: TRELLO_LIST_ID,
-            name: name,
-            desc: description,
-        };
-
-        // Add optional rich parameters
-        if (options.due) params.due = options.due;
-        if (options.pos) params.pos = options.pos;
-        if (options.idLabels && options.idLabels.length > 0) {
-            params.idLabels = options.idLabels.join(',');
-        }
-
-        const response = await axios.post(url, null, { params });
-        return response.data;
-    } catch (error) {
-        console.error('Error creating Trello card:', error.response?.data || error.message);
-        throw error;
-    }
-}
-
-async function createTrelloWebhook(callbackURL, description) {
-    try {
-        const response = await axios.post('https://api.trello.com/1/webhooks', null, {
-            params: {
-                key: TRELLO_API_KEY,
-                token: TRELLO_API_TOKEN,
-                callbackURL: callbackURL,
-                idModel: TRELLO_BOARD_ID,
-                description: description || 'Discord-Trello Bot Webhook'
-            }
-        });
-        return response.data;
-    } catch (error) {
-        console.error('Error creating Trello webhook:', error.response?.data || error.message);
-        throw error;
-    }
-}
-
-async function deleteTrelloWebhook(webhookId) {
-    try {
-        await axios.delete(`https://api.trello.com/1/webhooks/${webhookId}`, {
-            params: {
-                key: TRELLO_API_KEY,
-                token: TRELLO_API_TOKEN
-            }
-        });
-        console.log(`🗑️ Webhook ${webhookId} deleted successfully`);
-    } catch (error) {
-        console.error('Error deleting Trello webhook:', error.response?.data || error.message);
-        throw error;
-    }
-}
-
-async function listTrelloWebhooks() {
-    try {
-        const response = await axios.get(`https://api.trello.com/1/tokens/${TRELLO_API_TOKEN}/webhooks`, {
-            params: {
-                key: TRELLO_API_KEY,
-                token: TRELLO_API_TOKEN
-            }
-        });
-        return response.data;
-    } catch (error) {
-        console.error('Error listing Trello webhooks:', error.response?.data || error.message);
-        throw error;
-    }
-}
-
+// Discord notification function (unchanged for compatibility)
 async function sendDiscordNotification(channelId, embed) {
     try {
         const channel = client.channels.cache.get(channelId);
@@ -234,10 +318,11 @@ async function sendDiscordNotification(channelId, embed) {
             await channel.send({ embeds: [embed] });
         }
     } catch (error) {
-        console.error('Error sending Discord notification:', error);
+        console.error('❌ Error sending Discord notification:', error);
     }
 }
 
+// Trello event embed creation (unchanged for compatibility)
 function createTrelloEventEmbed(action) {
     const { type, data, memberCreator, date } = action;
     
@@ -333,8 +418,8 @@ function createTrelloEventEmbed(action) {
     return embed;
 }
 
-// Webhook endpoint
-app.post('/webhook/trello', (req, res) => {
+// Enhanced webhook endpoint with multi-board support
+app.post('/webhook/trello', async (req, res) => {
     try {
         const signature = req.get('X-Trello-Webhook');
         const body = req.body;
@@ -348,119 +433,296 @@ app.post('/webhook/trello', (req, res) => {
         }
         
         const payload = JSON.parse(body.toString());
+        
+        // Validate webhook payload
+        const validation = ValidationUtils.validateWebhookPayload(payload);
+        if (!validation.valid) {
+            console.error('❌ Invalid webhook payload:', validation.error);
+            return res.status(400).send('Bad Request');
+        }
+        
         const { action } = payload;
         
         console.log(`🔔 Webhook received: ${action.type} by ${action.memberCreator.fullName}`);
         
-        // Create and send Discord notification
+        // Create Discord notification
         const embed = createTrelloEventEmbed(action);
         
-        // Send to all channels where bot has been used (this is a simplified approach)
-        // In a production setup, you'd want to store channel mappings in a database
-        client.guilds.cache.forEach(guild => {
-            const systemChannel = guild.systemChannel;
-            if (systemChannel && systemChannel.permissionsFor(client.user).has('SendMessages')) {
-                sendDiscordNotification(systemChannel.id, embed);
+        // Enhanced multi-board notification routing via WebhookManager
+        if (webhookManager && action.data.board) {
+            try {
+                const boardId = action.data.board.id;
+                console.log(`🔀 Routing webhook notification for board: ${boardId}`);
+                
+                // Log webhook event in audit logger
+                if (auditLogger) {
+                    await auditLogger.logSystemEvent('webhook_received', {
+                        boardId,
+                        action: action.type,
+                        member: action.memberCreator.fullName,
+                        timestamp: new Date().toISOString()
+                    }, 'LOW');
+                }
+                
+                const result = await webhookManager.routeNotificationToChannels(boardId, client, embed);
+                
+                if (result.success && result.notificationsSent > 0) {
+                    console.log(`✅ Successfully routed webhook notification to ${result.notificationsSent} channels`);
+                    
+                    // Record analytics for webhook routing
+                    if (analyticsManager) {
+                        await analyticsManager.recordSystemMetric('webhook_routing', {
+                            boardId,
+                            channelsNotified: result.notificationsSent,
+                            actionType: action.type,
+                            timestamp: new Date().toISOString()
+                        });
+                    }
+                } else if (result.success && result.notificationsSent === 0) {
+                    console.log(`⚠️ No channels configured for board ${boardId}, using fallback notification`);
+                    
+                    // Log unconfigured board warning
+                    if (auditLogger) {
+                        await auditLogger.logSystemEvent('webhook_unconfigured_board', {
+                            boardId,
+                            actionType: action.type,
+                            timestamp: new Date().toISOString()
+                        }, 'MEDIUM');
+                    }
+                    
+                    // Fallback to broadcast to all guilds
+                    client.guilds.cache.forEach(guild => {
+                        const systemChannel = guild.systemChannel;
+                        if (systemChannel && systemChannel.permissionsFor(client.user)?.has('SendMessages')) {
+                            sendDiscordNotification(systemChannel.id, embed);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('❌ Error in webhook manager routing:', error);
+                
+                // Log webhook routing failure
+                if (auditLogger) {
+                    await auditLogger.logSystemEvent('webhook_routing_failure', {
+                        boardId: action.data.board.id,
+                        error: error.message,
+                        timestamp: new Date().toISOString()
+                    }, 'HIGH');
+                }
+                
+                // Fallback to original behavior
+                client.guilds.cache.forEach(guild => {
+                    const systemChannel = guild.systemChannel;
+                    if (systemChannel && systemChannel.permissionsFor(client.user)?.has('SendMessages')) {
+                        sendDiscordNotification(systemChannel.id, embed);
+                    }
+                });
             }
-        });
+        } else {
+            // Fallback when WebhookManager not available or no board data
+            console.log('⚠️ WebhookManager not available or no board data, using broadcast fallback');
+            
+            if (auditLogger) {
+                await auditLogger.logSystemEvent('webhook_fallback', {
+                    reason: webhookManager ? 'no_board_data' : 'webhook_manager_unavailable',
+                    actionType: action.type,
+                    timestamp: new Date().toISOString()
+                }, 'MEDIUM');
+            }
+            
+            client.guilds.cache.forEach(guild => {
+                const systemChannel = guild.systemChannel;
+                if (systemChannel && systemChannel.permissionsFor(client.user)?.has('SendMessages')) {
+                    sendDiscordNotification(systemChannel.id, embed);
+                }
+            });
+        }
         
         res.status(200).send('OK');
     } catch (error) {
-        console.error('Error processing webhook:', error);
+        console.error('❌ Error processing webhook:', error);
         res.status(500).send('Internal Server Error');
     }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+// Health check endpoint (enhanced for Phase 3.3)
+app.get('/health', async (req, res) => {
+    try {
+        const health = {
+            status: 'OK',
+            timestamp: new Date().toISOString(),
+            version: '1.2.0',
+            phase: 'Phase 3.3 - Advanced Features & Admin Tools',
+            services: {
+                database: false,
+                cache: false,
+                trello: false,
+                webhook_manager: false,
+                discord: client.readyAt !== null,
+                // Phase 3.3 services
+                permission_manager: false,
+                analytics_manager: false,
+                audit_logger: false,
+                template_manager: false,
+                ai_enhanced_manager: false
+            }
+        };
+        
+        // Core services
+        if (db) {
+            health.services.database = await db.healthCheck();
+        }
+        
+        if (configCache) {
+            const cacheHealth = await configCache.healthCheck();
+            health.services.cache = cacheHealth.healthy;
+            health.cache_stats = cacheHealth.stats;
+        }
+        
+        if (trelloService) {
+            const trelloHealth = await trelloService.healthCheck();
+            health.services.trello = trelloHealth.healthy;
+        }
+        
+        if (webhookManager) {
+            const webhookHealth = await webhookManager.healthCheck();
+            health.services.webhook_manager = webhookHealth.healthy;
+            health.webhook_stats = {
+                totalRegistrations: webhookHealth.totalRegistrations,
+                activeRegistrations: webhookHealth.activeRegistrations
+            };
+        }
+        
+        // Phase 3.3 services health checks
+        if (permissionManager) {
+            const permHealth = await permissionManager.healthCheck();
+            health.services.permission_manager = permHealth.healthy;
+            health.permission_stats = {
+                cacheSize: permHealth.cacheSize,
+                features: permHealth.features
+            };
+        }
+        
+        if (analyticsManager) {
+            const analyticsHealth = await analyticsManager.getHealthMetrics();
+            health.services.analytics_manager = analyticsHealth.healthy;
+            health.analytics_stats = {
+                bufferSize: analyticsHealth.bufferStatus?.size || 0,
+                maxBufferSize: analyticsHealth.bufferStatus?.maxSize || 0,
+                realTimeMetrics: analyticsHealth.realTime
+            };
+        }
+        
+        if (auditLogger) {
+            const auditHealth = await auditLogger.healthCheck();
+            health.services.audit_logger = auditHealth.healthy;
+            health.audit_stats = {
+                bufferSize: auditHealth.bufferSize,
+                features: auditHealth.features
+            };
+        }
+        
+        if (templateManager) {
+            const templateHealth = await templateManager.healthCheck();
+            health.services.template_manager = templateHealth.healthy;
+            health.template_stats = {
+                templateCount: templateHealth.templateCount,
+                supportedFormats: templateHealth.supportedFormats
+            };
+        }
+        
+        if (aiEnhancedManager) {
+            const aiHealth = await aiEnhancedManager.healthCheck();
+            health.services.ai_enhanced_manager = aiHealth.healthy;
+            health.ai_stats = {
+                aiEnabled: aiHealth.aiEnabled,
+                cacheSize: aiHealth.cacheSize,
+                features: aiHealth.features
+            };
+        }
+        
+        // CommandRouter comprehensive health
+        if (commandRouter) {
+            const routerHealth = await commandRouter.healthCheck();
+            health.command_router = {
+                healthy: routerHealth.healthy,
+                commandsRegistered: routerHealth.commands.registered,
+                availableCommands: routerHealth.commands.available,
+                enabledFeatures: routerHealth.features
+            };
+        }
+        
+        // Overall system health assessment
+        const unhealthyServices = Object.entries(health.services)
+            .filter(([service, healthy]) => !healthy)
+            .map(([service]) => service);
+        
+        if (unhealthyServices.length > 0) {
+            health.status = 'DEGRADED';
+            health.degraded_services = unhealthyServices;
+        }
+        
+        // Record health check request in analytics
+        if (analyticsManager) {
+            await analyticsManager.recordSystemMetric('health_check_request', {
+                timestamp: health.timestamp,
+                status: health.status,
+                degradedServices: unhealthyServices
+            });
+        }
+        
+        res.status(200).json(health);
+    } catch (error) {
+        console.error('❌ Health check endpoint error:', error);
+        
+        // Log health check failure
+        if (auditLogger) {
+            await auditLogger.logSystemEvent('health_endpoint_failure', {
+                error: error.message,
+                timestamp: new Date().toISOString()
+            }, 'HIGH');
+        }
+        
+        res.status(500).json({
+            status: 'ERROR',
+            timestamp: new Date().toISOString(),
+            version: '1.2.0',
+            phase: 'Phase 3.3 - Advanced Features & Admin Tools',
+            error: error.message
+        });
+    }
 });
 
-async function getBoardStatus() {
-    try {
-        const boardResponse = await axios.get(`https://api.trello.com/1/boards/${TRELLO_BOARD_ID}`, {
-            params: {
-                key: TRELLO_API_KEY,
-                token: TRELLO_API_TOKEN,
-                lists: 'open',
-                cards: 'open'
-            }
-        });
-        
-        const listsResponse = await axios.get(`https://api.trello.com/1/boards/${TRELLO_BOARD_ID}/lists`, {
-            params: {
-                key: TRELLO_API_KEY,
-                token: TRELLO_API_TOKEN,
-                cards: 'open'
-            }
-        });
-        
-        return {
-            board: boardResponse.data,
-            lists: listsResponse.data
-        };
-    } catch (error) {
-        console.error('Error getting board status:', error.response?.data || error.message);
-        throw error;
-    }
-}
-
-async function updateTrelloCard(cardId, updates) {
-    try {
-        const response = await axios.put(`https://api.trello.com/1/cards/${cardId}`, null, {
-            params: {
-                key: TRELLO_API_KEY,
-                token: TRELLO_API_TOKEN,
-                ...updates
-            }
-        });
-        return response.data;
-    } catch (error) {
-        console.error('Error updating Trello card:', error.response?.data || error.message);
-        throw error;
-    }
-}
-
-async function getRecentCards(limit = 10) {
-    try {
-        const response = await axios.get(`https://api.trello.com/1/boards/${TRELLO_BOARD_ID}/cards`, {
-            params: {
-                key: TRELLO_API_KEY,
-                token: TRELLO_API_TOKEN,
-                limit: limit,
-                since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() // Last 7 days
-            }
-        });
-        return response.data;
-    } catch (error) {
-        console.error('Error getting recent cards:', error.response?.data || error.message);
-        throw error;
-    }
-}
-
+// Environment validation (enhanced)
 function validateEnvironmentVariables() {
-    const requiredVars = [
-        'DISCORD_BOT_TOKEN',
-        'TRELLO_API_KEY',
-        'TRELLO_API_TOKEN',
-        'TRELLO_BOARD_ID',
-        'TRELLO_LIST_ID'
-    ];
-
-    const missingVars = requiredVars.filter(varName => !process.env[varName]);
+    const validation = ValidationUtils.validateEnvironmentVariables();
     
-    if (missingVars.length > 0) {
+    if (!validation.valid) {
         console.error('❌ Missing required environment variables:');
-        missingVars.forEach(varName => console.error(`   - ${varName}`));
+        validation.missingRequired.forEach(varName => console.error(`   - ${varName}`));
         console.error('\nPlease check your .env file and ensure all required variables are set.');
         process.exit(1);
     }
+    
+    if (validation.warnings.length > 0) {
+        console.log('⚠️ Configuration warnings:');
+        validation.warnings.forEach(warning => console.log(`   - ${warning}`));
+    }
+    
+    console.log('✅ Environment validation passed');
+    if (validation.presentOptional.length > 0) {
+        console.log(`🔧 Optional features enabled: ${validation.presentOptional.join(', ')}`);
+    }
 }
 
-client.once('ready', () => {
+// Discord client ready event (enhanced for Phase 3.3)
+client.once('ready', async () => {
     console.log('🤖 Discord-Trello Bot is online!');
-    console.log(`📋 Connected to Trello Board: ${TRELLO_BOARD_ID}`);
     console.log(`🎯 Listening for "${COMMAND_PREFIX}" commands`);
+    console.log('🚀 Phase 3.3: Advanced Features & Admin Tools Enabled');
+    
+    // Initialize services after Discord client is ready
+    await initializeServices();
     
     if (genAI) {
         console.log('🧠 Gemini AI integration enabled - Smart card creation active');
@@ -468,387 +730,68 @@ client.once('ready', () => {
         console.log('📝 Gemini AI not configured - Using basic card creation');
     }
     
-    client.user.setActivity(`${COMMAND_PREFIX} <task>`, { type: 'LISTENING' });
+    // Set activity based on available Phase 3.3 features
+    const features = [];
+    if (configManager) features.push('Multi-board');
+    if (genAI) features.push('AI');
+    if (WEBHOOK_URL && webhookManager) features.push('Smart Webhooks');
+    if (permissionManager) features.push('Permissions');
+    if (analyticsManager) features.push('Analytics');
+    if (auditLogger) features.push('Audit');
+    if (templateManager) features.push('Templates');
+    if (aiEnhancedManager) features.push('AI-Enhanced');
+    
+    const activityText = features.length > 0 
+        ? `${COMMAND_PREFIX} help • ${features.slice(0, 3).join(', ')}${features.length > 3 ? '...' : ''}`
+        : `${COMMAND_PREFIX} help`;
+    
+    client.user.setActivity(activityText, { type: 'LISTENING' });
+    
+    // Log successful startup
+    if (auditLogger) {
+        await auditLogger.logSystemEvent('bot_ready', {
+            features: features,
+            commandPrefix: COMMAND_PREFIX,
+            guilds: client.guilds.cache.size,
+            timestamp: new Date().toISOString()
+        }, 'LOW');
+    }
+    
+    // Log system statistics
+    if (analyticsManager) {
+        await analyticsManager.recordSystemMetric('bot_startup', {
+            guilds: client.guilds.cache.size,
+            features: features,
+            version: '1.2.0',
+            phase: 'Phase 3.3',
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    console.log(`🏆 Bot ready! Serving ${client.guilds.cache.size} guilds with ${features.length} advanced features enabled.`);
 });
 
+// Enhanced message handling with modular routing
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
     if (message.content.startsWith(COMMAND_PREFIX)) {
-        const fullArgs = message.content.slice(COMMAND_PREFIX.length).trim();
-        const [command, ...args] = fullArgs.split(' ');
-        
-        if (!command) {
-            await message.reply('❌ Please provide a command. Available commands: `create`, `status`, `list`, `update`, `help`');
-            return;
-        }
-
         try {
-            switch (command.toLowerCase()) {
-                case 'help':
-                    await handleHelpCommand(message);
-                    break;
-                    
-                case 'status':
-                    await handleStatusCommand(message);
-                    break;
-                    
-                case 'list':
-                    await handleListCommand(message, args);
-                    break;
-                    
-                case 'update':
-                    await handleUpdateCommand(message, args);
-                    break;
-                    
-                default:
-                    // Default behavior - create card (backward compatibility)
-                    await handleCreateCommand(message, fullArgs);
-                    break;
+            if (commandRouter) {
+                // Use modular command routing
+                await commandRouter.routeCommand(message, COMMAND_PREFIX);
+            } else {
+                // Fallback to basic functionality
+                await message.reply('⚠️ Bot services are initializing. Please try again in a moment.');
             }
         } catch (error) {
-            console.error('Error processing command:', error);
-            await message.reply('❌ An error occurred processing your command. Please try again.');
+            console.error('❌ Error in message handling:', error);
+            await message.reply('❌ An error occurred. Please try again.');
         }
     }
 });
 
-async function handleHelpCommand(message) {
-    const embed = {
-        color: 0x0079bf,
-        title: '🤖 Discord-Trello Bot Commands',
-        fields: [
-            {
-                name: `${COMMAND_PREFIX} <task_description>`,
-                value: 'Create a new Trello card with AI-powered analysis',
-                inline: false
-            },
-            {
-                name: `${COMMAND_PREFIX} status`,
-                value: 'Show current board status and statistics',
-                inline: false
-            },
-            {
-                name: `${COMMAND_PREFIX} list [limit]`,
-                value: 'Show recent cards (default: 5, max: 20)',
-                inline: false
-            },
-            {
-                name: `${COMMAND_PREFIX} update <card-id> <field>=<value>`,
-                value: 'Update an existing card (fields: name, desc, due)',
-                inline: false
-            },
-            {
-                name: `${COMMAND_PREFIX} help`,
-                value: 'Show this help message',
-                inline: false
-            }
-        ],
-        footer: {
-            text: genAI ? 'Discord-Trello Bot • Powered by Gemini AI' : 'Discord-Trello Bot'
-        },
-        timestamp: new Date().toISOString()
-    };
-    
-    await message.reply({ embeds: [embed] });
-}
-
-async function handleStatusCommand(message) {
-    try {
-        await message.react('⏳');
-        
-        const status = await getBoardStatus();
-        let totalCards = 0;
-        
-        const listFields = status.lists.map(list => {
-            totalCards += list.cards.length;
-            return {
-                name: `📋 ${list.name}`,
-                value: `${list.cards.length} cards`,
-                inline: true
-            };
-        });
-        
-        const embed = {
-            color: 0x0079bf,
-            title: `📊 Board Status: ${status.board.name}`,
-            fields: [
-                {
-                    name: '📈 Overview',
-                    value: `**Total Cards**: ${totalCards}\n**Lists**: ${status.lists.length}`,
-                    inline: false
-                },
-                ...listFields
-            ],
-            footer: { text: 'Discord-Trello Bot' },
-            timestamp: new Date().toISOString()
-        };
-        
-        await message.reactions.removeAll();
-        await message.react('✅');
-        await message.reply({ embeds: [embed] });
-        
-    } catch (error) {
-        await message.react('❌');
-        console.error('Error getting board status:', error);
-        await message.reply('❌ Failed to get board status. Please check the bot configuration.');
-    }
-}
-
-async function handleListCommand(message, args) {
-    try {
-        await message.react('⏳');
-        
-        const limit = Math.min(parseInt(args[0]) || 5, 20);
-        const recentCards = await getRecentCards(limit);
-        
-        if (recentCards.length === 0) {
-            await message.reply('📝 No recent cards found.');
-            return;
-        }
-        
-        const cardFields = recentCards.slice(0, limit).map(card => ({
-            name: `📝 ${card.name}`,
-            value: `**ID**: ${card.id.substring(0, 8)}\n**Created**: ${formatDate(card.dateLastActivity)}${card.due ? `\n**Due**: ${formatDate(card.due)}` : ''}`,
-            inline: true
-        }));
-        
-        const embed = {
-            color: 0x0079bf,
-            title: `📋 Recent Cards (${cardFields.length})`,
-            fields: cardFields,
-            footer: { text: 'Discord-Trello Bot' },
-            timestamp: new Date().toISOString()
-        };
-        
-        await message.reactions.removeAll();
-        await message.react('✅');
-        await message.reply({ embeds: [embed] });
-        
-    } catch (error) {
-        await message.react('❌');
-        console.error('Error getting recent cards:', error);
-        await message.reply('❌ Failed to get recent cards. Please check the bot configuration.');
-    }
-}
-
-async function handleUpdateCommand(message, args) {
-    try {
-        if (args.length < 2) {
-            await message.reply('❌ Usage: `!tupdate <card-id> <field>=<value>`\nExample: `!tupdate abc12345 name=New Task Name`');
-            return;
-        }
-        
-        await message.react('⏳');
-        
-        const cardId = args[0];
-        const updateString = args.slice(1).join(' ');
-        const [field, ...valueParts] = updateString.split('=');
-        const value = valueParts.join('=');
-        
-        if (!field || !value) {
-            await message.reply('❌ Invalid format. Use: `<field>=<value>`\nSupported fields: name, desc, due');
-            return;
-        }
-        
-        const updates = {};
-        switch (field.toLowerCase()) {
-            case 'name':
-                updates.name = value;
-                break;
-            case 'desc':
-            case 'description':
-                updates.desc = value;
-                break;
-            case 'due':
-                updates.due = new Date(value).toISOString();
-                break;
-            default:
-                await message.reply('❌ Unsupported field. Use: name, desc, or due');
-                return;
-        }
-        
-        const updatedCard = await updateTrelloCard(cardId, updates);
-        
-        const embed = {
-            color: 0xffa500,
-            title: '✏️ Card Updated Successfully!',
-            fields: [
-                { name: '📝 Card', value: updatedCard.name, inline: false },
-                { name: '🔗 Trello Card', value: updatedCard.shortUrl, inline: false },
-                { name: '👤 Updated by', value: message.author.tag, inline: true }
-            ],
-            footer: { text: 'Discord-Trello Bot' },
-            timestamp: new Date().toISOString()
-        };
-        
-        await message.reactions.removeAll();
-        await message.react('✅');
-        await message.reply({ embeds: [embed] });
-        
-    } catch (error) {
-        await message.react('❌');
-        console.error('Error updating card:', error);
-        await message.reply('❌ Failed to update card. Please check the card ID and try again.');
-    }
-}
-
-async function handleCreateCommand(message, fullArgs) {
-    try {
-        await message.react('⏳');
-        
-        // Prepare Discord context for Gemini analysis
-        const discordContext = {
-            username: message.author.tag,
-            channelName: message.channel.name,
-            guildName: message.guild?.name || 'DM'
-        };
-        
-        let card;
-        let analysis = null;
-        
-        // Try Gemini analysis first
-        if (genAI) {
-            console.log('🤖 Analyzing task with Gemini...');
-            analysis = await analyzeTaskWithGemini(fullArgs, discordContext);
-        }
-        
-        if (analysis) {
-            // Create rich card with Gemini analysis
-            console.log('✨ Creating rich card with analysis:', analysis);
-            
-            const labelIds = await getOrCreateTrelloLabels(analysis.labels);
-            const cardOptions = {
-                pos: analysis.priority === 'High' ? 'top' : 'bottom',
-                idLabels: labelIds
-            };
-            
-            if (analysis.dueDate) {
-                cardOptions.due = analysis.dueDate;
-            }
-            
-            const enrichedDescription = `${analysis.description}\n\n---\n**Created by:** ${message.author.tag}\n**Channel:** #${message.channel.name}\n**Priority:** ${analysis.priority}\n**Estimated Effort:** ${analysis.estimatedEffort}`;
-            
-            card = await createTrelloCard(analysis.title, enrichedDescription, cardOptions);
-        } else {
-            // Fallback to basic card creation
-            console.log('📝 Creating basic card (Gemini unavailable)');
-            const taskDescription = `Created by ${message.author.tag} in Discord channel: #${message.channel.name}`;
-            card = await createTrelloCard(fullArgs, taskDescription);
-        }
-        
-        await message.reactions.removeAll();
-        await message.react('✅');
-        
-        // Create enhanced embed response
-        const embed = createTaskEmbed(card, analysis, message.author.tag);
-        await message.reply({ embeds: [embed] });
-        
-    } catch (error) {
-        try {
-            await message.reactions.removeAll();
-        } catch (reactionError) {
-            if (reactionError.code === 50013) {
-                console.log('Missing permissions to manage reactions');
-            } else {
-                console.error('Error removing reactions:', reactionError);
-            }
-        }
-        await message.react('❌');
-        
-        console.error('Error creating card:', error);
-        await message.reply('❌ Failed to create Trello card. Please check the bot configuration and try again.');
-    }
-}
-
-function createTaskEmbed(card, analysis, authorTag) {
-    const embed = {
-        color: analysis ? getPriorityColor(analysis.priority) : 0x0099ff,
-        title: analysis ? '🧠 Smart Task Created!' : '📋 Task Created Successfully!',
-        fields: [
-            {
-                name: '📝 Task',
-                value: card.name,
-                inline: false
-            },
-            {
-                name: '🔗 Trello Card',
-                value: card.shortUrl || 'Created successfully',
-                inline: false
-            },
-            {
-                name: '👤 Created by',
-                value: authorTag,
-                inline: true
-            }
-        ],
-        timestamp: new Date().toISOString(),
-        footer: {
-            text: analysis ? 'Discord-Trello Bot • Powered by Gemini AI' : 'Discord-Trello Bot'
-        }
-    };
-
-    if (analysis) {
-        // Add analysis fields
-        embed.fields.push(
-            {
-                name: '🎯 Priority',
-                value: `${getPriorityEmoji(analysis.priority)} ${analysis.priority}`,
-                inline: true
-            },
-            {
-                name: '⏱️ Estimated Effort',
-                value: analysis.estimatedEffort,
-                inline: true
-            }
-        );
-        
-        if (analysis.dueDate) {
-            embed.fields.push({
-                name: '📅 Due Date',
-                value: formatDate(analysis.dueDate),
-                inline: true
-            });
-        }
-        
-        if (analysis.labels && analysis.labels.length > 0) {
-            embed.fields.push({
-                name: '🏷️ Labels',
-                value: analysis.labels.join(', '),
-                inline: false
-            });
-        }
-        
-        if (analysis.category) {
-            embed.fields.push({
-                name: '📂 Category',
-                value: analysis.category,
-                inline: true
-            });
-        }
-    }
-
-    return embed;
-}
-
-function getPriorityColor(priority) {
-    switch (priority) {
-        case 'High': return 0xff4444;
-        case 'Medium': return 0xffaa00;
-        case 'Low': return 0x44ff44;
-        default: return 0x0099ff;
-    }
-}
-
-function getPriorityEmoji(priority) {
-    switch (priority) {
-        case 'High': return '🔴';
-        case 'Medium': return '🟡';
-        case 'Low': return '🟢';
-        default: return '🔵';
-    }
-}
-
+// Utility function (unchanged for compatibility)
 function formatDate(dateString) {
     try {
         const date = new Date(dateString);
@@ -865,14 +808,132 @@ function formatDate(dateString) {
     }
 }
 
+// Error handling (enhanced)
 client.on('error', (error) => {
-    console.error('Discord client error:', error);
+    console.error('❌ Discord client error:', error);
 });
 
 process.on('unhandledRejection', (error) => {
-    console.error('Unhandled promise rejection:', error);
+    console.error('❌ Unhandled promise rejection:', error);
 });
 
+// Graceful shutdown (enhanced for Phase 3.3)
+async function gracefulShutdown(signal) {
+    console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
+    
+    try {
+        // Log shutdown event
+        if (auditLogger) {
+            await auditLogger.logSystemEvent('shutdown_initiated', {
+                signal,
+                timestamp: new Date().toISOString()
+            }, 'LOW');
+            
+            // Flush any remaining audit logs
+            await auditLogger.flushLogBuffer();
+        }
+        
+        // Flush analytics buffer
+        if (analyticsManager) {
+            console.log('📊 Flushing analytics data...');
+            await analyticsManager.flushMetricsBuffer();
+        }
+        
+        // Close Phase 3.3 services
+        console.log('🔄 Closing Phase 3.3 services...');
+        
+        if (permissionManager) {
+            permissionManager.clearPermissionCache();
+        }
+        
+        if (templateManager) {
+            console.log('📋 Template manager shutdown');
+        }
+        
+        if (aiEnhancedManager) {
+            console.log('🧠 AI enhanced manager shutdown');
+        }
+        
+        // Close webhook services
+        if (webhookManager) {
+            console.log('🧹 Running webhook cleanup...');
+            try {
+                await webhookManager.cleanupOrphanedWebhooks();
+            } catch (cleanupError) {
+                console.error('⚠️ Webhook cleanup failed:', cleanupError.message);
+            }
+        }
+        
+        // Close cache and database
+        if (configCache) {
+            configCache.close();
+            console.log('📦 Cache closed');
+        }
+        
+        if (db) {
+            await db.close();
+            console.log('🗃️ Database connection closed');
+        }
+        
+        // Close Express server
+        if (server) {
+            server.close(() => {
+                console.log('🌐 Webhook server closed');
+            });
+        }
+        
+        // Destroy Discord client
+        client.destroy();
+        console.log('🤖 Discord client disconnected');
+        
+        console.log('✅ Graceful shutdown completed');
+        process.exit(0);
+    } catch (error) {
+        console.error('❌ Error during shutdown:', error);
+        
+        // Log shutdown error if possible
+        if (auditLogger) {
+            try {
+                await auditLogger.logSystemEvent('shutdown_error', {
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                }, 'HIGH');
+            } catch (logError) {
+                console.error('Failed to log shutdown error:', logError.message);
+            }
+        }
+        
+        process.exit(1);
+    }
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Legacy webhook management functions (for compatibility with deployment scripts)
+async function createTrelloWebhook(callbackURL, description) {
+    if (trelloService) {
+        return await trelloService.createWebhook(callbackURL, process.env.TRELLO_BOARD_ID, description);
+    }
+    throw new Error('TrelloService not available');
+}
+
+async function deleteTrelloWebhook(webhookId) {
+    if (trelloService) {
+        return await trelloService.deleteWebhook(webhookId);
+    }
+    throw new Error('TrelloService not available');
+}
+
+async function listTrelloWebhooks() {
+    if (trelloService) {
+        return await trelloService.listWebhooks();
+    }
+    throw new Error('TrelloService not available');
+}
+
+// Main initialization
+console.log('🚀 Starting Discord-Trello Bot...');
 validateEnvironmentVariables();
 
 client.login(DISCORD_BOT_TOKEN).catch((error) => {
@@ -881,54 +942,58 @@ client.login(DISCORD_BOT_TOKEN).catch((error) => {
 });
 
 // Start Express server for webhooks
-const server = app.listen(WEBHOOK_PORT, () => {
+const server = app.listen(WEBHOOK_PORT, async () => {
     console.log(`🌐 Webhook server running on port ${WEBHOOK_PORT}`);
     
     // Initialize webhooks if URL is configured
     if (WEBHOOK_URL) {
         console.log(`🪝 Webhook URL configured: ${WEBHOOK_URL}`);
         
-        // Auto-register webhook on startup (optional)
+        // Auto-register webhooks for all configured boards
         setTimeout(async () => {
             try {
-                const existingWebhooks = await listTrelloWebhooks();
-                const botWebhook = existingWebhooks.find(webhook => 
-                    webhook.callbackURL === `${WEBHOOK_URL}/webhook/trello`
-                );
+                if (webhookManager) {
+                    console.log('🚀 Starting auto-registration of webhooks for all configured boards...');
+                    const results = await webhookManager.autoRegisterWebhooksForConfiguredBoards(WEBHOOK_URL);
+                    
+                    if (results.success) {
+                        console.log(`✅ Webhook auto-registration completed: ${results.successful}/${results.total} boards`);
+                        
+                        if (results.successful < results.total) {
+                            console.log('⚠️ Some webhooks failed to register. Check logs above for details.');
+                            console.log('💡 You can manually manage webhooks using config commands.');
+                        }
+                    } else {
+                        console.error('❌ Webhook auto-registration failed:', results.error);
+                        console.log('💡 You can manually register webhooks using config commands.');
+                    }
+                }
                 
-                if (!botWebhook) {
-                    console.log('🔧 Registering new webhook...');
-                    const webhook = await createTrelloWebhook(
-                        `${WEBHOOK_URL}/webhook/trello`,
-                        'Discord-Trello Bot Auto-registered'
+                // Fallback to legacy behavior if TRELLO_BOARD_ID is set but no multi-board config
+                else if (trelloService && process.env.TRELLO_BOARD_ID) {
+                    console.log('📄 Using legacy webhook registration for TRELLO_BOARD_ID...');
+                    const existingWebhooks = await listTrelloWebhooks();
+                    const botWebhook = existingWebhooks.find(webhook => 
+                        webhook.callbackURL === `${WEBHOOK_URL}/webhook/trello`
                     );
-                    console.log(`✅ Webhook registered: ${webhook.id}`);
-                } else {
-                    console.log(`✅ Webhook already exists: ${botWebhook.id}`);
+                    
+                    if (!botWebhook) {
+                        console.log('🔧 Registering legacy webhook...');
+                        const webhook = await createTrelloWebhook(
+                            `${WEBHOOK_URL}/webhook/trello`,
+                            'Discord-Trello Bot Legacy Auto-registered'
+                        );
+                        console.log(`✅ Legacy webhook registered: ${webhook.id}`);
+                    } else {
+                        console.log(`✅ Legacy webhook already exists: ${botWebhook.id}`);
+                    }
                 }
             } catch (error) {
-                console.error('⚠️ Failed to register webhook:', error.message);
-                console.log('💡 You can manually register webhooks later.');
+                console.error('⚠️ Failed to register webhooks:', error.message);
+                console.log('💡 You can manually register webhooks using config commands.');
             }
-        }, 5000); // Wait 5 seconds for Discord client to be ready
+        }, 8000); // Wait 8 seconds for services to fully initialize
     } else {
         console.log('⚠️ WEBHOOK_URL not configured - webhook notifications disabled');
     }
-});
-
-// Gracefully close server on shutdown
-process.on('SIGINT', () => {
-    console.log('\n🛑 Received SIGINT, shutting down gracefully...');
-    server.close(() => {
-        client.destroy();
-        process.exit(0);
-    });
-});
-
-process.on('SIGTERM', () => {
-    console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
-    server.close(() => {
-        client.destroy();
-        process.exit(0);
-    });
 });
