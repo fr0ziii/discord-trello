@@ -1,6 +1,6 @@
 # Discord-Trello Bot
 
-An intelligent Discord bot that provides full bidirectional integration between Discord and Trello with real-time synchronization. Create rich Trello cards from Discord messages using AI-powered task analysis, receive live notifications of Trello updates in Discord, and manage your boards directly from chat with advanced commands.
+An enterprise-ready Discord bot that provides comprehensive multi-board integration between Discord and Trello with real-time synchronization, advanced analytics, and AI-powered features. Each Discord channel can be mapped to different Trello boards, enabling sophisticated team organization, workflow management, and collaborative project tracking with intelligent automation.
 
 ## 🚀 Features
 
